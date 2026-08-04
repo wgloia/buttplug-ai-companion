@@ -1,0 +1,46 @@
+# ========== 服务器 ==========
+[server]
+host = "0.0.0.0"        # 0.0.0.0 允许手机通过局域网远程访问
+port = 8000
+
+# ========== 本地大模型 (OpenAI 兼容接口) ==========
+# Ollama:    http://127.0.0.1:11434/v1  (Ollama 自带 /v1 兼容端点)
+# LM Studio: http://127.0.0.1:1234/v1
+# 云端:      填入任意 OpenAI 兼容 API 地址即可（如 deepseek、moonshot）
+[llm]
+base_url = "http://127.0.0.1:11434/v1"
+api_key = "ollama"       # 本地服务可填任意值
+model = "qwen2.5:7b-instruct-q4_K_M"
+temperature = 0.9
+max_tokens = 1024
+# 角色扮演需要长上下文，建议 >= 4096
+context_length = 8192
+
+# ========== 玩具控制 (Intiface Central) ==========
+# 启动 Intiface Central 后，默认 WebSocket 地址为 ws://127.0.0.1:12345
+[toy]
+intiface_ws = "ws://127.0.0.1:12345"
+auto_connect = true      # 启动时自动连接 Intiface
+auto_scan = true         # 连接后自动扫描设备
+
+# ========== 安全层 ==========
+[safety]
+# 所有震动命令的最大强度 (0-100)，防止 LLM 误触发 100%
+max_intensity = 80
+# 看门狗：不带时长的命令最多持续多少秒后自动停止
+watchdog_seconds = 15
+# 安全词：聊天中输入该词立即全部停止（默认 "red"）
+safeword = "red"
+# 完全禁用玩具（仅调试时打开聊天功能）
+toy_disabled = false
+
+# ========== 人设 ==========
+[persona]
+# 人设卡文件路径（Character Card V2 格式，SillyTavern 兼容）
+character_file = "characters/xiaoyu.json"
+
+# ========== 语音 (TTS，可选) ==========
+[tts]
+enabled = true
+# edge-tts 中文音色：zh-CN-XiaoxiaoNeural / zh-CN-XiaoyiNeural / zh-CN-YunxiNeural(男)
+voice = "zh-CN-XiaoxiaoNeural"
