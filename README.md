@@ -22,7 +22,7 @@
 - **流式命令**：模型在回复中写 `[[vibrate 60]]`、`[[pattern 心跳]]`、`[[stop]]`，边生成边执行
 - **震动模式库**：心跳 / 波浪 / 脉动 / 爬升 / 颤抖 / 巡航 6 种波形，支持 `[[pattern 名称,强度,时长秒]]`
 - **语音输入**：麦克风录音 → faster-whisper 本地转写（中文，隐私无忧）
-- **语音输出**：edge-tts 免费中文语音合成
+- **语音输出**：真人语音克隆（GPT-SoVITS v4，5 秒参考音频零样本克隆）+ edge-tts 免费合成回退；界面 🗣 按钮切换音色（`voices/` 目录扔 wav+txt 即自动出现）
 - **长时记忆**：LLM 自动提炼对话要点入库存档（每 8 条消息），聊天时按相关性自动回忆；记忆按角色隔离
 - **多重安全层**：强度上限钳制、15 秒看门狗自动停止、安全词（red）、紧急停止按钮
 - **手机友好**：响应式界面，手机浏览器局域网访问（录音/聊天/TTS 全支持）
@@ -136,7 +136,7 @@ python -m app.main
 
 ## 自配角色（含"蒸馏"任意人物）
 
-1. 把任意 Character Card V2 JSON 放进 `characters/` 目录（SillyTavern 角色卡可直接导入；`xiaoyu.json`/`lingyin.json` 是内置示例）
+1. 把任意 Character Card V2 JSON 放进 `characters/` 目录（SillyTavern 角色卡可直接导入；`xiaoyu.json`/`lingyin.json` 是内置示例），或在界面 🎭 菜单里点 **"＋ 导入角色卡"** 直接上传
 2. 界面左上角 🎭 按钮或点头像即可切换，会话历史按角色隔离
 
 **一键蒸馏工具**（把收集的素材交给本地 LLM 自动生成完整角色卡）：
@@ -151,6 +151,23 @@ python -m tools.distill_persona --name "星野" --input 素材.txt
 > 蒸馏只基于素材中提供的信息，不会编造素材没有的个人细节；请仅使用公开信息或已获授权的素材。手工微调方法：把素材用本地 LLM 整理成 character card 字段（description/personality/mes_example）→ 放入目录即可。示例：要模仿一个"元气学妹"人设，参考 `lingyin.json` 中 `system_prompt` 里"语气俏皮、爱用语气词"的写法。
 
 **记忆连续性**：记忆按角色隔离持久化（`memories/` 目录），切换角色再切回，该角色的记忆完整保留；界面右上角 🧠 按钮可查看/删除/清空记忆。
+
+## 真人语音克隆（GPT-SoVITS）
+
+零样本克隆只需 **5~10 秒参考音频**，无需训练，全本地运行：
+
+1. **部署 GPT-SoVITS v4**（一次性）：参考 [官方仓库](https://github.com/RVC-Boss/GPT-SoVITS)，需 Python 3.10~3.12 + 任意 4GB+ 显存显卡；预训练模型约 1.7GB
+2. **启动 API 服务**：
+   ```bash
+   cd GPT-SoVITS
+   python api.py -s GPT_SoVITS/pretrained_models/gsv-v4-pretrained/s2Gv4.pth \
+                 -g GPT_SoVITS/pretrained_models/s1v3.ckpt \
+                 -dr ref.wav -dt "参考音频文本" -dl zh -p 9880
+   ```
+3. **添加音色**：把目标声音的 wav（5~10 秒，清晰人声）+ 同名 txt（该音频的逐字文本）放进本项目 `voices/` 目录，界面 🗣 按钮里即可切换
+4. 本项目的 `[tts]` 配置：`engine = "auto"`（GPT-SoVITS 不可用时自动回退 edge-tts）
+
+> Windows 提示：若 `pip install torchaudio` 后报 TorchCodec 错误，请用 `pip install torch==2.7.0 torchaudio==2.7.0 --index-url https://download.pytorch.org/whl/cu128` 降级（torchaudio 2.9+ 在 Windows 强制要求无 Windows 版的 torchcodec）。
 
 ## 支持的国产品牌（采购参考）
 
@@ -219,10 +236,10 @@ Sexverse、Fredoritch、KGoal（凯格尔训练）、Omobo、Cupido、Ankni 等�
 - [x] 语音输入（whisper 本地转写）
 - [x] 多角色切换（自配置角色卡）
 - [x] 长时记忆（LLM 提取 + 本地相似度检索）
-- [ ] 记忆手动增删界面（/api/memory 已有 API）
-- [ ] SillyTavern 角色卡 Web 导入
+- [x] 记忆管理界面（查看/删除/清空/手动添加）
+- [x] SillyTavern 角色卡 Web 导入（界面 🎭 → 导入角色卡）
+- [x] 真人语音克隆 TTS（GPT-SoVITS v4 集成，voices/ 音色管理，edge-tts 回退）
 - [ ] Docker 一键部署
-- [ ] 真人语音克隆 TTS（替代 edge-tts 音色）
 
 ## 免责声明
 

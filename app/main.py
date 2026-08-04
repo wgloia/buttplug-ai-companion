@@ -4,6 +4,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import re
 import tempfile
 import uuid
 from pathlib import Path
@@ -18,6 +19,7 @@ from .llm import LLMClient, LLMConfig
 from .memory import MemoryStore, extract_memories
 from .patterns import PATTERNS, PatternEngine
 from .persona import load_persona
+from .speak import TTSConfig, TTSManager
 from .toy_control import ToyController
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -97,9 +99,16 @@ async def startup():
 
     # 会话历史
     state["sessions"] = {}
-    # TTS 开关
-    state["tts_enabled"] = cfg.get("tts", {}).get("enabled", True)
-    state["tts_voice"] = cfg.get("tts", {}).get("voice", "zh-CN-XiaoxiaoNeural")
+    # TTS：GPT-SoVITS 克隆音色（主）+ edge-tts（回退）
+    tts_cfg = cfg.get("tts", {})
+    state["tts_enabled"] = tts_cfg.get("enabled", True)
+    state["tts"] = TTSManager(TTSConfig(
+        engine=tts_cfg.get("engine", "auto"),
+        voice=tts_cfg.get("voice", ""),
+        gpt_sovits_url=tts_cfg.get("gpt_sovits_url", "http://127.0.0.1:9880"),
+        voices_dir=tts_cfg.get("voices_dir", "voices"),
+        edge_voice=tts_cfg.get("edge_voice", "zh-CN-XiaoxiaoNeural"),
+    ), BASE_DIR)
 
 
 def get_session(session_id: str) -> dict:
@@ -183,6 +192,38 @@ async def info():
 @app.get("/api/personas")
 async def personas():
     return {"current": state["current_persona"], "personas": state["persona_index"]}
+
+
+@app.post("/api/personas/import")
+async def import_persona(request: Request):
+    """Web 导入 SillyTavern 角色卡（Character Card V2 或旧版扁平 JSON），存入 characters/ 目录。"""
+    raw = (await request.body()).decode("utf-8", errors="replace")
+    try:
+        data = json.loads(raw)
+    except Exception:
+        raise HTTPException(400, "不是有效的 JSON 文件")
+    if not isinstance(data, dict):
+        raise HTTPException(400, "角色卡必须是 JSON 对象")
+    # 兼容 v2 (data 字段) 与旧版扁平格式，与 load_persona 保持一致
+    card = data.get("data", data) if str(data.get("spec", "")).startswith("chara_card") else data
+    name = str(card.get("name", "")).strip() if isinstance(card, dict) else ""
+    if not name:
+        raise HTTPException(400, "未找到角色名（不是 Character Card 格式）")
+
+    # 安全文件名：去掉 Windows 非法字符，避免覆盖已有角色卡
+    safe = re.sub(r'[<>:"/\\|?*\x00-\x1f]', "_", name).strip().strip(".") or "角色"
+    pdir = BASE_DIR / "characters"
+    pdir.mkdir(exist_ok=True)
+    target = pdir / f"{safe}.json"
+    n = 2
+    while target.exists():
+        target = pdir / f"{safe}_{n}.json"
+        n += 1
+    target.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    state["persona_index"] = index_personas()
+    log.info("导入角色卡: %s -> %s", name, target.name)
+    return {"ok": True, "name": name, "file": target.name, "personas": state["persona_index"]}
 
 
 @app.post("/api/persona")
@@ -383,23 +424,42 @@ async def stt(request: Request):
 
 @app.post("/api/speak")
 async def speak(request: Request):
-    """TTS：将文本转为语音返回音频文件。"""
+    """TTS：GPT-SoVITS 克隆音色（不可用时回退 edge-tts），返回音频。"""
     if not state["tts_enabled"]:
         raise HTTPException(400, "TTS 未启用")
     body = await request.json()
     text = (body.get("text") or "").strip()
     if not text:
         raise HTTPException(400, "文本为空")
-    # 去掉指令标记再朗读
-    import re
-    clean = re.sub(r"\[\[.*?\]\]", "", text).strip()
-    if not clean:
-        return {"ok": False, "reason": "无可用文本"}
-    f = tempfile.NamedTemporaryFile(suffix=".mp3", delete=False)
+    try:
+        data, media_type = await state["tts"].speak(text)
+    except ValueError as exc:
+        return {"ok": False, "reason": str(exc)}
+    except Exception as exc:
+        log.warning("TTS 合成失败: %s", exc)
+        raise HTTPException(500, f"TTS 失败: {exc}")
+    f = tempfile.NamedTemporaryFile(suffix=".bin", delete=False)
+    f.write(data)
     f.close()
-    tts = edge_tts.Communicate(clean, state["tts_voice"])
-    await tts.save(f.name)
-    return FileResponse(f.name, media_type="audio/mpeg")
+    return FileResponse(f.name, media_type=media_type)
+
+
+@app.get("/api/tts/voices")
+async def tts_voices():
+    """可用克隆音色列表（voices/ 目录扫描）。"""
+    return {"current": state["tts"].current, "engine": state["tts"].config.engine,
+            "voices": state["tts"].voice_list()}
+
+
+@app.post("/api/tts/voice")
+async def tts_set_voice(request: Request):
+    """切换当前克隆音色。"""
+    body = await request.json()
+    name = str(body.get("name", ""))
+    if not state["tts"].set_voice(name):
+        raise HTTPException(404, f"音色不存在: {name}")
+    log.info("切换音色: %s", name)
+    return {"ok": True, "current": name}
 
 
 app.mount("/static", StaticFiles(directory=str(BASE_DIR / "web")), name="static")

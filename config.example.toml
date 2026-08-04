@@ -44,8 +44,16 @@ character_file = "characters/xiaoyu.json"
 enabled = true
 # 记忆按角色隔离存储在 memories/ 目录，每 8 条用户消息自动提取一次
 
-# ========== 语音 (TTS，可选) ==========
+# ========== 语音 (TTS) ==========
 [tts]
 enabled = true
-# edge-tts 中文音色：zh-CN-XiaoxiaoNeural / zh-CN-XiaoyiNeural / zh-CN-YunxiNeural(男)
-voice = "zh-CN-XiaoxiaoNeural"
+# 引擎: gpt-sovits（本地真人克隆音色）/ edge（edge-tts 免费合成）/ auto（GPT-SoVITS 不可用时自动回退 edge）
+engine = "auto"
+# 默认克隆音色名（留空取 voices/ 目录第一个）；音色列表见界面 🗣 按钮
+voice = ""
+# 本地 GPT-SoVITS API 地址（需先启动 GPT-SoVITS api.py，监听 9880）
+gpt_sovits_url = "http://127.0.0.1:9880"
+# 音色目录：<音色名>.wav + 同名 .txt（参考音频与对应文本），放入即出现在音色列表
+voices_dir = "voices"
+# edge-tts 中文音色（回退用）：zh-CN-XiaoxiaoNeural / zh-CN-XiaoyiNeural / zh-CN-YunxiNeural(男)
+edge_voice = "zh-CN-XiaoxiaoNeural"

@@ -4,6 +4,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 
+import httpx
 from openai import AsyncOpenAI
 
 log = logging.getLogger(__name__)
@@ -22,7 +23,9 @@ class LLMConfig:
 class LLMClient:
     def __init__(self, config: LLMConfig):
         self.config = config
-        self.client = AsyncOpenAI(base_url=config.base_url, api_key=config.api_key)
+        # trust_env=False：忽略系统代理（本地模型服务被代理劫持会 502）
+        self.client = AsyncOpenAI(base_url=config.base_url, api_key=config.api_key,
+                                  http_client=httpx.AsyncClient(trust_env=False))
 
     async def stream_chat(self, messages: list[dict]):
         """流式生成。yield 文本增量。若底层不支持流式则回退为一次性返回。"""
