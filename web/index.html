@@ -44,6 +44,14 @@
   .m-item .m-del { background: none; border: none; color: var(--danger); font-size: 15px; cursor: pointer; flex-shrink: 0; }
   .m-empty { color: var(--dim); font-size: 13px; text-align: center; padding: 18px 0; }
   .m-clear { margin-top: 10px; width: 100%; background: rgba(255,77,94,.15); border: 1px solid rgba(255,77,94,.4); color: #ffb3ba; border-radius: 10px; padding: 9px; cursor: pointer; font-size: 13px; }
+  .m-add { display: flex; gap: 8px; margin-bottom: 12px; }
+  .m-add input { flex: 1; background: var(--bg); border: 1px solid rgba(255,255,255,.12); color: var(--text); border-radius: 10px; padding: 9px 12px; font-size: 13px; outline: none; }
+  .m-add input:focus { border-color: var(--accent); }
+  .m-add button { background: linear-gradient(135deg, var(--accent), var(--accent2)); border: none; color: #fff; border-radius: 10px; padding: 0 14px; font-size: 16px; cursor: pointer; flex-shrink: 0; }
+  .m-imp { display: flex; align-items: center; gap: 6px; margin-bottom: 12px; font-size: 12px; color: var(--dim); }
+  .m-imp .stars { display: flex; gap: 2px; }
+  .m-imp .stars span { cursor: pointer; font-size: 15px; opacity: .3; }
+  .m-imp .stars span.on { opacity: 1; color: #ffd166; }
   #btn-mic { background: var(--card); border: 1px solid rgba(255,255,255,.12); border-radius: 50%; width: 46px; height: 46px; font-size: 18px; cursor: pointer; flex-shrink: 0; }
   #btn-mic.rec { background: var(--danger); animation: pulse 1.2s infinite; }
   @keyframes pulse { 50% { opacity: .6; } }
@@ -91,6 +99,16 @@
 <div id="memory-menu" onclick="if(event.target===this)hideMemory()">
   <div class="panel">
     <h3>🧠 记忆管理（<span id="mem-count">0</span> 条）</h3>
+    <div class="m-add">
+      <input id="mem-input" placeholder="添加一条记忆…" maxlength="200">
+      <button onclick="addMemory()" title="添加">＋</button>
+    </div>
+    <div class="m-imp">重要度
+      <span class="stars" id="mem-stars">
+        <span onclick="setImportance(1)">★</span><span onclick="setImportance(2)">★</span><span onclick="setImportance(3)">★</span><span onclick="setImportance(4)">★</span><span onclick="setImportance(5)">★</span>
+      </span>
+      <span id="mem-imp-label">普通</span>
+    </div>
     <div id="memory-list"></div>
     <button class="m-clear" onclick="clearMemories()">清空全部记忆</button>
   </div>
@@ -143,8 +161,27 @@ function switchPersona() { if (personas.length) $('#persona-menu').classList.add
 function hideMenu() { $('#persona-menu').classList.remove('show'); }
 
 // ---- 记忆管理 ----
-function toggleMemory() { loadMemories(); $('#memory-menu').classList.add('show'); }
+const IMP_LABELS = ['', '次要', '一般', '普通', '重要', '非常重要'];
+let memImportance = 3;
+function toggleMemory() { loadMemories(); renderStars(); $('#memory-menu').classList.add('show'); }
 function hideMemory() { $('#memory-menu').classList.remove('show'); }
+function renderStars() {
+  document.querySelectorAll('#mem-stars span').forEach((s, i) => s.classList.toggle('on', i < memImportance));
+  $('#mem-imp-label').textContent = IMP_LABELS[memImportance];
+}
+function setImportance(n) { memImportance = n; renderStars(); }
+async function addMemory() {
+  const input = $('#mem-input');
+  const text = input.value.trim();
+  if (!text) return;
+  try {
+    const r = await fetch('/api/memory/add', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text, importance: memImportance }) });
+    const j = await r.json();
+    if (!j.ok) { addMsg('⚠ ' + (j.error || '添加失败'), 'sys'); return; }
+    if (j.added) { input.value = ''; loadMemories(); }
+    else { addMsg('⚠ 该记忆与已有记忆相似，已合并并更新重要度', 'sys'); input.value = ''; loadMemories(); }
+  } catch (e) { addMsg('⚠ 添加失败: ' + e.message, 'sys'); }
+}
 async function loadMemories() {
   const list = $('#memory-list');
   list.innerHTML = '<div class="m-empty">加载中…</div>';

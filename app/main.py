@@ -245,6 +245,20 @@ async def delete_memory(request: Request):
     return {"ok": True, "removed": removed["text"], "memories": len(items)}
 
 
+@app.post("/api/memory/add")
+async def add_memory(request: Request):
+    """手动添加一条记忆（走去重合并逻辑）。"""
+    if not state["memory_enabled"]:
+        return {"ok": False, "error": "记忆功能已关闭"}
+    body = await request.json()
+    text = str(body.get("text", "")).strip()
+    if not text:
+        return {"ok": False, "error": "记忆内容不能为空"}
+    importance = max(1, min(5, int(body.get("importance", 3))))
+    added = state["memory"].add(text, importance)
+    return {"ok": True, "added": added, "memories": len(state["memory"])}
+
+
 @app.post("/api/emergency_stop")
 async def emergency_stop():
     await state["engine"].stop()

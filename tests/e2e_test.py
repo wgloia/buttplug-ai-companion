@@ -153,6 +153,26 @@ def test_distill_script():
     print(f"✓ 蒸馏生成角色卡: {data['name']} | 开场白: {data['first_mes'][:20]}…")
 
 
+def test_memory_add():
+    print("\n=== 记忆手动添加 ===")
+    # 空文本应拒绝
+    r = post("/api/memory/add", {"text": "  "})
+    j = json.loads(r.read())
+    assert not j["ok"], "空记忆应被拒绝"
+    # 正常添加
+    j = json.loads(post("/api/memory/add", {"text": "用户最喜欢深夜聊天", "importance": 5}).read())
+    assert j["ok"] and j["added"], "应新增成功"
+    # 重复添加应合并（added=False）
+    j2 = json.loads(post("/api/memory/add", {"text": "用户最喜欢深夜聊天", "importance": 2}).read())
+    assert j2["ok"] and not j2["added"], "相似记忆应合并去重"
+    # 入库验证
+    mems = json.loads(urllib.request.urlopen(BASE + "/api/memory", timeout=10).read())["memories"]
+    hit = [m for m in mems if "深夜聊天" in m["text"]]
+    assert hit, "记忆应入库"
+    assert hit[0]["importance"] == 5, "重要度应保留较高值（5）"
+    print(f"✓ 手动添加 + 去重合并 + 重要度保留正常（共 {len(mems)} 条）")
+
+
 def test_memory_continuity():
     print("\n=== 记忆连续性（切换角色再切回）===")
     resp = json.loads(urllib.request.urlopen(BASE + "/api/memory", timeout=10).read())
@@ -202,6 +222,7 @@ if __name__ == "__main__":
     test_tts()
     test_stt()
     test_memory()
+    test_memory_add()
     test_memory_continuity()
     test_distill_script()
     print("\n全部测试通过 🎉")
