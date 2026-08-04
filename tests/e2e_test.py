@@ -9,7 +9,12 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 BASE = "http://127.0.0.1:8010"
 
 
+TEST_SESSION = "e2e-test-session"
+
+
 def post(path, payload, stream=False):
+    if "session_id" not in payload:
+        payload["session_id"] = TEST_SESSION
     req = urllib.request.Request(
         BASE + path,
         data=json.dumps(payload).encode("utf-8"),
@@ -111,12 +116,52 @@ def test_stt():
     print("✓ STT 端点存活（真实转写需麦克风音频，略）")
 
 
+def test_memory():
+    print("\n=== 长时记忆 ===")
+    # 先清空
+    clear_resp = urllib.request.urlopen(urllib.request.Request(BASE + "/api/memory/clear", method="POST"), timeout=10)
+    print("clear 响应:", clear_resp.read().decode())
+    resp = json.loads(urllib.request.urlopen(BASE + "/api/memory", timeout=10).read())
+    print("clear 后 GET:", json.dumps(resp, ensure_ascii=False)[:300])
+    assert len(resp["memories"]) == 0, "记忆应初始为空"
+    # 同一会话连续发 8 条消息触发记忆提取（mock 返回 2 条记忆）
+    for i in range(8):
+        post("/api/chat", {"message": f"我养了一只叫豆豆的猫，它很可爱（第{i}次）"})
+    import time
+    time.sleep(3)  # 等后台提取任务完成
+    resp = json.loads(urllib.request.urlopen(BASE + "/api/memory", timeout=10).read())
+    print("提取到记忆:", [m["text"] for m in resp["memories"]])
+    assert len(resp["memories"]) >= 1, "应提取到至少 1 条记忆"
+    assert any("豆豆" in m["text"] or "猫" in m["text"] for m in resp["memories"]), "应记住豆豆的猫"
+    # 注入验证：清空记忆后检索应随提取条数变化
+    print("✓ 记忆提取 + 持久化正常")
+
+
+def test_memory_retrieve_unit():
+    print("\n=== 记忆检索（单元）===")
+    from app.memory import MemoryStore, sim
+    import tempfile
+    with tempfile.TemporaryDirectory() as d:
+        store = MemoryStore(__import__("pathlib").Path(d) / "m.json")
+        assert store.add("用户喜欢草莓味的甜点", 3)
+        assert store.add("用户养了一只叫豆豆的猫", 4)
+        assert not store.add("用户喜欢草莓味甜点"), "相似记忆应被去重合并"
+        hits = store.retrieve("草莓蛋糕", top_k=1)
+        assert hits and "草莓" in hits[0]["text"], "检索应命中草莓相关记忆"
+        hits2 = store.retrieve("猫", top_k=1)
+        assert hits2 and "猫" in hits2[0]["text"], "检索应命中猫相关记忆"
+    assert sim("今天天气不错", "今天天气很好") > 0.3
+    print("✓ 记忆去重 + 检索正确")
+
+
 if __name__ == "__main__":
     test_devices()
     test_pattern_cmd()
+    test_memory_retrieve_unit()
     test_persona_api()
     test_chat("你好呀，今天想你了")
     test_safeword()
     test_tts()
     test_stt()
+    test_memory()
     print("\n全部测试通过 🎉")

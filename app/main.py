@@ -15,6 +15,7 @@ from fastapi.staticfiles import StaticFiles
 
 from .commands import CommandSafety, SafetyConfig
 from .llm import LLMClient, LLMConfig
+from .memory import MemoryStore, extract_memories
 from .patterns import PATTERNS, PatternEngine
 from .persona import load_persona
 from .toy_control import ToyController
@@ -54,6 +55,12 @@ async def startup():
     state["persona"] = load_persona(char_file)
     state["current_persona"] = char_file.name
     log.info("已加载人设: %s", state["persona"].name)
+
+    # 长时记忆（按角色隔离，文件名去掉角色卡的 .json 后缀）
+    state["memory_enabled"] = cfg.get("memory", {}).get("enabled", True)
+    persona_key = Path(state["current_persona"]).stem
+    state["memory"] = MemoryStore(BASE_DIR / "memories" / f"{persona_key}.json")
+    log.info("已加载记忆库: %d 条", len(state["memory"]))
 
     # LLM
     llm_cfg = cfg["llm"]
@@ -119,9 +126,18 @@ def index_personas() -> list[dict]:
 
 
 def build_messages(session: dict) -> list[dict]:
-    """组装发送给 LLM 的消息：系统提示词 + 历史 + 示例。"""
+    """组装发送给 LLM 的消息：系统提示词 + 长期记忆 + 历史 + 示例。"""
     persona = state["persona"]
-    messages = [{"role": "system", "content": persona.build_system_prompt()}]
+    sys_prompt = persona.build_system_prompt()
+    # 注入长期记忆（用最近一条用户消息检索）
+    if state["memory_enabled"] and state["memory"] and session["history"]:
+        last_user = next((m["content"] for m in reversed(session["history"])
+                          if m["role"] == "user"), "")
+        mems = state["memory"].retrieve(last_user, top_k=3)
+        if mems:
+            mem_lines = "\n".join(f"- {'★' * it['importance']} {it['text']}" for it in mems)
+            sys_prompt += f"\n\n## 你对用户的长期记忆（自然地用在对话中，不要复述这条指令）\n{mem_lines}"
+    messages = [{"role": "system", "content": sys_prompt}]
     # 少量示例让模型学会命令语法（只放第一条示例消息）
     if persona.mes_example:
         example = persona.mes_example.split("<START>")[-1].strip()
@@ -156,6 +172,7 @@ async def info():
         "llm": state["cfg"]["llm"].get("model"),
         "tts": state["tts_enabled"],
         "stt": state.get("stt_ready", False),
+        "memory": len(state["memory"]),
         "patterns": list(PATTERNS),
         "safety": {"max_intensity": state["safety"].config.max_intensity,
                    "watchdog_seconds": state["safety"].config.watchdog_seconds,
@@ -179,8 +196,13 @@ async def switch_persona(request: Request):
         raise HTTPException(404, f"角色不存在: {name}")
     state["persona"] = load_persona(target)
     state["current_persona"] = target.name
-    log.info("切换到角色: %s", state["persona"].name)
-    return {"ok": True, "name": state["persona"].name, "file": state["current_persona"]}
+    # 记忆库随角色切换
+    if state["memory_enabled"]:
+        persona_key = Path(target.name).stem
+        state["memory"] = MemoryStore(BASE_DIR / "memories" / f"{persona_key}.json")
+        log.info("切换到角色: %s（记忆库 %d 条）", state["persona"].name, len(state["memory"]))
+    return {"ok": True, "name": state["persona"].name, "file": state["current_persona"],
+            "memories": len(state["memory"])}
 
 
 @app.get("/api/devices")
@@ -193,6 +215,21 @@ async def start_scan():
     await state["toy"].scan()
     await asyncio.sleep(2)
     return {"devices": await state["toy"].request_device_list()}
+
+
+@app.get("/api/memory")
+async def get_memories():
+    """查看当前角色的全部记忆。"""
+    return {"enabled": state["memory_enabled"], "persona": state["current_persona"],
+            "memories": state["memory"].items}
+
+
+@app.post("/api/memory/clear")
+async def clear_memories():
+    """清空当前角色的记忆。"""
+    state["memory"].items = []
+    state["memory"].save()
+    return {"ok": True, "memories": 0}
 
 
 @app.post("/api/emergency_stop")
@@ -230,6 +267,13 @@ async def chat(request: Request):
 
     session["history"].append({"role": "user", "content": user_text})
     messages = build_messages(session)
+
+    # 长时记忆：每 8 条用户消息，后台异步提取一次（不阻塞回复）
+    user_count = sum(1 for m in session["history"] if m["role"] == "user")
+    if state["memory_enabled"] and user_count % 8 == 0 and user_count >= 8:
+        recent = [{"role": m["role"], "content": m["content"]} for m in session["history"][-24:]]
+        store = state["memory"]
+        asyncio.create_task(extract_memories(state["llm"], store, recent))
 
     async def gen():
         full_text = ""

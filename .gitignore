@@ -2,3 +2,4 @@ __pycache__/
 *.pyc
 config.toml
 *.mp3
+memories/
