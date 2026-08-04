@@ -27,6 +27,60 @@
 - **多重安全层**：强度上限钳制、15 秒看门狗自动停止、安全词（red）、紧急停止按钮
 - **手机友好**：响应式界面，手机浏览器局域网访问（录音/聊天/TTS 全支持）
 
+## 项目架构
+
+```
+┌──────────────────────────────────────────────────────────────┐
+│ 客户端层（浏览器 / 手机，web/index.html）                      │
+│   聊天 UI · 麦克风录音 · 角色切换 · 紧急停止按钮              │
+└──────────────────────────┬───────────────────────────────────┘
+                           │ SSE 流式事件（delta/cmd/error） + REST API
+┌──────────────────────────▼───────────────────────────────────┐
+│ 服务层（Python FastAPI，app/）                                │
+│   main.py      路由、会话管理（按角色隔离）、SSE 流、编排      │
+│   llm.py       LLM 客户端（OpenAI 兼容，流式）                │
+│   commands.py  [[命令]] 解析 + 安全钳制 + 看门狗              │
+│   patterns.py  震动模式引擎（波形调度，10Hz 驱动）            │
+│   memory.py    长时记忆（LLM 提取 + 本地相似度检索 + 持久化）  │
+│   persona.py   人设卡加载（Character Card V2）                │
+│   toy_control.py  Intiface 客户端（buttplug v3 协议）         │
+└───────┬──────────────┬──────────────────┬────────────────────┘
+        │              │                  │
+   OpenAI 兼容 API   WebSocket JSON     edge-tts（合成）
+   （Ollama/LM Studio/（玩具控制）      faster-whisper（识别）
+   云端任意）            │
+                   Intiface Central
+                        │ 蓝牙
+                    玩具设备
+```
+
+**数据流**：用户消息 →（语音则先 STT 转文字）→ 注入长期记忆与系统提示词 → LLM 流式生成 → 实时解析 `[[命令]]` → 安全钳制 → 执行（振动/模式/停止）→ 文本流回前端（可 TTS 播报）。
+
+**安全层位置**：所有命令在到达玩具前必须经过 `commands.py` 的钳制（强度上限）与看门狗（超时自动停），安全词与紧急停止直接绕过 LLM 通道。
+
+## 技术栈与第三方依赖
+
+| 类别 | 技术/依赖 | 用途 |
+|---|---|---|
+| 语言 | Python 3.9+ | 后端 |
+| Web 框架 | FastAPI + uvicorn | REST/SSE 服务 |
+| WebSocket | websockets | 与 Intiface Central 通信 |
+| LLM | openai SDK（OpenAI 兼容接口） | 接入 Ollama / LM Studio / 任意云端模型 |
+| 语音合成 | edge-tts | 中文 TTS 播报（免费，微软语音） |
+| 语音识别 | faster-whisper | 本地中文转写（CTranslate2 加速，无需 GPU） |
+| 配置 | tomli / tomllib | TOML 配置解析 |
+| 前端 | 原生 HTML/CSS/JS | 单页响应式，零前端构建链 |
+
+**外部程序（需自行安装）**：
+
+| 程序 | 用途 | 获取方式 |
+|---|---|---|
+| Ollama（或 LM Studio） | 本地大模型运行时 | ollama.com |
+| Intiface Central | 玩具中继（蓝牙管理 + WebSocket 端口） | intiface.com/central |
+| ffmpeg | faster-whisper 解码音频 | winget / 官网 |
+
+**可选**：无显卡时也可用任意 OpenAI 兼容云端 API（如 DeepSeek）替代本地模型。
+
 ## 快速开始
 
 ### 1. 安装依赖
