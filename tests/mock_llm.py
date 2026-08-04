@@ -9,13 +9,32 @@ FIXED_REPLY = "宝贝～你今天真可爱，让我陪陪你吧。[[vibrate 40]]
 
 MEMORY_REPLY = '[{"text": "用户喜欢草莓味的甜点", "importance": 3}, {"text": "用户养了一只叫豆豆的猫", "importance": 4}]'
 
+DISTILL_REPLY = json.dumps({
+    "spec": "chara_card_v2",
+    "data": {
+        "name": "小雨",
+        "description": "21 岁的女孩，性格温柔害羞，轻声细语，喜欢草莓味的甜点。",
+        "personality": "温柔、害羞、体贴，说话总是带着尾音。",
+        "scenario": "在温馨的小房间里初次见面。",
+        "first_mes": "你…你好呀，我叫小雨。初次见面，请多关照～",
+        "mes_example": "<START>\n{{user}}: 你好呀\n{{char}}: 嗯嗯，你好～今天过得怎么样？",
+        "system_prompt": "说话轻声细语，称呼用户为哥哥。",
+        "tags": ["温柔", "害羞"],
+    }
+}, ensure_ascii=False)
+
 
 @mock.post("/v1/chat/completions")
 async def completions(request: Request):
     # 记忆提取请求：最后一条消息含"长期记忆"指令时返回记忆 JSON
     body = await request.json()
     last_msg = body["messages"][-1]["content"] if body.get("messages") else ""
-    reply = MEMORY_REPLY if "值得长期记住" in last_msg else FIXED_REPLY
+    if "值得长期记住" in last_msg:
+        reply = MEMORY_REPLY
+    elif "Character Card V2 格式" in last_msg or "角色卡创作" in last_msg:
+        reply = DISTILL_REPLY
+    else:
+        reply = FIXED_REPLY
     async def gen():
         yield "data: " + json.dumps({
             "id": "mock-1", "object": "chat.completion.chunk", "model": "mock",

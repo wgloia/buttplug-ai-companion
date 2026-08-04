@@ -34,7 +34,16 @@
   #input:focus { border-color: var(--accent); }
   #send { background: linear-gradient(135deg, var(--accent), var(--accent2)); border: none; color: #fff; border-radius: 50%; width: 46px; height: 46px; font-size: 18px; cursor: pointer; flex-shrink: 0; }
   #stop { position: fixed; right: 14px; bottom: 92px; width: 54px; height: 54px; border-radius: 50%; border: none; background: var(--danger); color: #fff; font-size: 11px; font-weight: 700; cursor: pointer; box-shadow: 0 4px 16px rgba(255,77,94,.4); z-index: 10; }
-  #btn-persona { background: rgba(255,255,255,.08); border: none; border-radius: 12px; padding: 8px 10px; font-size: 16px; cursor: pointer; }
+  #btn-persona, #btn-memory { background: rgba(255,255,255,.08); border: none; border-radius: 12px; padding: 8px 10px; font-size: 16px; cursor: pointer; }
+  #persona-menu, #memory-menu { position: fixed; inset: 0; background: rgba(0,0,0,.6); display: none; z-index: 20; align-items: center; justify-content: center; }
+  #persona-menu.show, #memory-menu.show { display: flex; }
+  #persona-menu .panel, #memory-menu .panel { background: var(--card); border-radius: 16px; padding: 18px; width: min(90vw, 380px); max-height: 70vh; overflow-y: auto; }
+  #persona-menu h3, #memory-menu h3 { margin-bottom: 12px; font-size: 15px; color: var(--dim); }
+  .m-item { padding: 9px 12px; border-radius: 10px; margin-bottom: 8px; border: 1px solid rgba(255,255,255,.06); display: flex; gap: 8px; align-items: flex-start; }
+  .m-item .m-text { flex: 1; font-size: 13px; line-height: 1.5; }
+  .m-item .m-del { background: none; border: none; color: var(--danger); font-size: 15px; cursor: pointer; flex-shrink: 0; }
+  .m-empty { color: var(--dim); font-size: 13px; text-align: center; padding: 18px 0; }
+  .m-clear { margin-top: 10px; width: 100%; background: rgba(255,77,94,.15); border: 1px solid rgba(255,77,94,.4); color: #ffb3ba; border-radius: 10px; padding: 9px; cursor: pointer; font-size: 13px; }
   #btn-mic { background: var(--card); border: 1px solid rgba(255,255,255,.12); border-radius: 50%; width: 46px; height: 46px; font-size: 18px; cursor: pointer; flex-shrink: 0; }
   #btn-mic.rec { background: var(--danger); animation: pulse 1.2s infinite; }
   @keyframes pulse { 50% { opacity: .6; } }
@@ -60,6 +69,7 @@
     <div class="status"><span id="dot"></span><span id="toy-status">连接中…</span></div>
   </div>
   <button id="btn-persona" onclick="switchPersona()" title="切换角色">🎭</button>
+  <button id="btn-memory" onclick="toggleMemory()" title="记忆管理">🧠</button>
 </header>
 
 <div id="messages">
@@ -76,6 +86,13 @@
   <div class="panel">
     <h3>选择角色</h3>
     <div id="persona-list"></div>
+  </div>
+</div>
+<div id="memory-menu" onclick="if(event.target===this)hideMemory()">
+  <div class="panel">
+    <h3>🧠 记忆管理（<span id="mem-count">0</span> 条）</h3>
+    <div id="memory-list"></div>
+    <button class="m-clear" onclick="clearMemories()">清空全部记忆</button>
   </div>
 </div>
 
@@ -124,6 +141,37 @@ function renderPersonas() {
 }
 function switchPersona() { if (personas.length) $('#persona-menu').classList.add('show'); }
 function hideMenu() { $('#persona-menu').classList.remove('show'); }
+
+// ---- 记忆管理 ----
+function toggleMemory() { loadMemories(); $('#memory-menu').classList.add('show'); }
+function hideMemory() { $('#memory-menu').classList.remove('show'); }
+async function loadMemories() {
+  const list = $('#memory-list');
+  list.innerHTML = '<div class="m-empty">加载中…</div>';
+  try {
+    const r = await fetch('/api/memory');
+    const j = await r.json();
+    $('#mem-count').textContent = j.memories.length;
+    if (!j.memories.length) { list.innerHTML = '<div class="m-empty">还没有记忆～ 聊天中我会自动记住重要的事</div>'; return; }
+    list.innerHTML = '';
+    j.memories.forEach((m, i) => {
+      const d = document.createElement('div');
+      d.className = 'm-item';
+      d.innerHTML = `<div class="m-text">${'★'.repeat(m.importance || 1)} ${m.text}</div>
+        <button class="m-del" title="删除这条记忆">✕</button>`;
+      d.querySelector('.m-del').onclick = async () => {
+        await fetch('/api/memory/delete', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ index: i }) });
+        loadMemories();
+      };
+      list.appendChild(d);
+    });
+  } catch (e) { list.innerHTML = '<div class="m-empty">加载失败: ' + e.message + '</div>'; }
+}
+async function clearMemories() {
+  if (!confirm('确定清空当前角色的全部记忆吗？此操作不可恢复。')) return;
+  await fetch('/api/memory/clear', { method: 'POST' });
+  loadMemories();
+}
 function updateToy(info) {
   const dot = $('#dot');
   if (info.toy === 'connected') { dot.className = 'on'; $('#toy-status').textContent = '玩具已连接 · ' + devices.map(d => d.DeviceName).join('、') || '已连接，无设备'; }

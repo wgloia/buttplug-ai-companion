@@ -232,6 +232,19 @@ async def clear_memories():
     return {"ok": True, "memories": 0}
 
 
+@app.post("/api/memory/delete")
+async def delete_memory(request: Request):
+    """删除当前角色的一条记忆（按索引）。"""
+    body = await request.json()
+    idx = int(body.get("index", -1))
+    items = state["memory"].items
+    if not 0 <= idx < len(items):
+        return {"ok": False, "error": f"索引 {idx} 越界"}
+    removed = items.pop(idx)
+    state["memory"].save()
+    return {"ok": True, "removed": removed["text"], "memories": len(items)}
+
+
 @app.post("/api/emergency_stop")
 async def emergency_stop():
     await state["engine"].stop()

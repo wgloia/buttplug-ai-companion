@@ -137,6 +137,44 @@ def test_memory():
     print("✓ 记忆提取 + 持久化正常")
 
 
+def test_distill_script():
+    print("\n=== 人设蒸馏脚本 ===")
+    import asyncio
+    from app.llm import LLMClient, LLMConfig
+    from tools.distill_persona import distill, validate
+    llm = LLMClient(LLMConfig(base_url="http://127.0.0.1:9999/v1", model="mock"))
+    card = asyncio.run(distill(llm, "小雨",
+                               "素材：她叫小雨，21 岁，性格温柔害羞，说话轻声细语，喜欢草莓味的甜点。"))
+    validate(card)
+    data = card["data"]
+    assert data["name"] == "小雨", "应生成正确的角色名"
+    assert data["first_mes"], "应生成开场白"
+    assert card.get("spec") == "chara_card_v2", "应为 Character Card V2 格式"
+    print(f"✓ 蒸馏生成角色卡: {data['name']} | 开场白: {data['first_mes'][:20]}…")
+
+
+def test_memory_continuity():
+    print("\n=== 记忆连续性（切换角色再切回）===")
+    resp = json.loads(urllib.request.urlopen(BASE + "/api/memory", timeout=10).read())
+    before = resp["memories"]
+    assert before, "前置条件：当前角色应有记忆（test_memory 已提取）"
+    texts_before = [m["text"] for m in before]
+    # 切到另一角色：记忆库应随之切换（不是同一批记忆）
+    pl = json.loads(urllib.request.urlopen(BASE + "/api/personas", timeout=10).read())
+    other = [p for p in pl["personas"] if p["file"] != pl["current"]][0]
+    post("/api/persona", {"name": other["file"]})
+    other_mem = json.loads(urllib.request.urlopen(BASE + "/api/memory", timeout=10).read())
+    assert [m["text"] for m in other_mem["memories"]] != texts_before, "切换后应为另一角色的记忆库"
+    # 切回原角色：记忆必须完整保留
+    post("/api/persona", {"name": pl["current"]})
+    back = json.loads(urllib.request.urlopen(BASE + "/api/memory", timeout=10).read())
+    texts_back = [m["text"] for m in back["memories"]]
+    for t in texts_before:
+        assert t in texts_back, f"切回后记忆丢失: {t}"
+    print(f"切换前 {len(before)} 条 → 切回后 {len(back['memories'])} 条，全部保留")
+    print("✓ 记忆连续性正常（按角色隔离，切换不丢失）")
+
+
 def test_memory_retrieve_unit():
     print("\n=== 记忆检索（单元）===")
     from app.memory import MemoryStore, sim
@@ -164,4 +202,6 @@ if __name__ == "__main__":
     test_tts()
     test_stt()
     test_memory()
+    test_memory_continuity()
+    test_distill_script()
     print("\n全部测试通过 🎉")
