@@ -5,3 +5,4 @@ config.toml
 memories/
 models/
 app.log
+scenes/

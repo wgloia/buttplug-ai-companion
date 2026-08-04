@@ -44,6 +44,12 @@ character_file = "characters/xiaoyu.json"
 enabled = true
 # 记忆按角色隔离存储在 memories/ 目录，每 8 条用户消息自动提取一次
 
+# ========== 剧情（音频转写） ==========
+[scenes]
+# 剧情音频目录：放入 .wav/.mp3/.m4a 等音频，界面右上角"剧情"下拉选择，
+# faster-whisper 本地转写为文本后注入对话，模型按剧本互动并触发玩具命令
+dir = "scenes"
+
 # ========== 语音 (TTS) ==========
 [tts]
 enabled = true

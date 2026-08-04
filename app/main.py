@@ -19,6 +19,7 @@ from .llm import LLMClient, LLMConfig
 from .memory import MemoryStore, extract_memories
 from .patterns import PATTERNS, PatternEngine
 from .persona import load_persona
+from .scenes import SceneManager
 from .speak import TTSConfig, TTSManager
 from .toy_control import ToyController
 
@@ -97,6 +98,10 @@ async def startup():
     # 震动模式引擎
     state["engine"] = PatternEngine(state["toy"], state["safety"])
 
+    # 剧情（scenes/ 目录音频 → 转写文本 → 注入对话）
+    state["scenes"] = SceneManager(BASE_DIR, cfg.get("scenes", {}).get("dir", "scenes"))
+    state["active_scene"] = ""
+
     # 会话历史
     state["sessions"] = {}
     # TTS：GPT-SoVITS 克隆音色（主）+ edge-tts（回退）
@@ -146,6 +151,17 @@ def build_messages(session: dict) -> list[dict]:
         if mems:
             mem_lines = "\n".join(f"- {'★' * it['importance']} {it['text']}" for it in mems)
             sys_prompt += f"\n\n## 你对用户的长期记忆（自然地用在对话中，不要复述这条指令）\n{mem_lines}"
+    # 注入当前剧情剧本（音频转写文本）：按剧本推进互动，亲密场景触发玩具命令
+    scene_name = state.get("active_scene", "")
+    if scene_name:
+        scene_text = state["scenes"].texts.get(scene_name, "")
+        if scene_text:
+            sys_prompt += (
+                "\n\n## 当前剧情剧本（音频对白）：严格按照剧本推进这段互动，"
+                "你扮演剧本中的女主角，与用户重现剧情对话；"
+                "根据剧情中的亲密场景主动触发玩具命令 [[pattern 模式名,强度,时长秒]] / [[vibrate 强度]] / [[stop]]\n"
+                + scene_text[:3000]
+            )
     messages = [{"role": "system", "content": sys_prompt}]
     # 少量示例让模型学会命令语法（只放第一条示例消息）
     if persona.mes_example:
@@ -298,6 +314,39 @@ async def add_memory(request: Request):
     importance = max(1, min(5, int(body.get("importance", 3))))
     added = state["memory"].add(text, importance)
     return {"ok": True, "added": added, "memories": len(state["memory"])}
+
+
+@app.get("/api/scenes")
+async def scenes():
+    """scenes/ 目录的可用剧情音频列表。"""
+    return {"scenes": state["scenes"].list_scenes(),
+            "active": state.get("active_scene", "")}
+
+
+@app.post("/api/scenes/select")
+async def select_scene(request: Request):
+    """选择剧情：开始转写音频（异步），转写完成后自动注入对话。"""
+    body = await request.json()
+    name = str(body.get("name", "")).strip()
+    sm = state["scenes"]
+    if name and sm.find_audio(name) is None:
+        raise HTTPException(404, f"音频不存在: {name}")
+    state["active_scene"] = name
+    if name:
+        await sm.transcribe(name)
+        log.info("剧情选择: %s（状态: %s）", name, sm.status.get(name, "idle"))
+    else:
+        log.info("剧情已清除")
+    return {"ok": True, "name": name, "status": sm.status.get(name, "idle")}
+
+
+@app.get("/api/scenes/status")
+async def scene_status():
+    """当前剧情转写状态（前端轮询）。"""
+    name = state.get("active_scene", "")
+    return {"active": name,
+            "status": state["scenes"].status.get(name, ""),
+            "text_len": len(state["scenes"].texts.get(name, ""))}
 
 
 @app.post("/api/emergency_stop")
