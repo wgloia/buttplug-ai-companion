@@ -27,6 +27,10 @@ class LLMClient:
         self.client = AsyncOpenAI(base_url=config.base_url, api_key=config.api_key,
                                   http_client=httpx.AsyncClient(trust_env=False))
 
+    def _extra_body(self) -> dict:
+        """Ollama 需要显式 num_ctx 才能用满配置的上下文长度。"""
+        return {"num_ctx": self.config.context_length} if "11434" in self.config.base_url else {}
+
     async def stream_chat(self, messages: list[dict]):
         """流式生成。yield 文本增量。若底层不支持流式则回退为一次性返回。"""
         try:
@@ -36,6 +40,7 @@ class LLMClient:
                 temperature=self.config.temperature,
                 max_tokens=self.config.max_tokens,
                 stream=True,
+                extra_body=self._extra_body(),
             )
             async for chunk in stream:
                 if chunk.choices and chunk.choices[0].delta and chunk.choices[0].delta.content:
@@ -48,6 +53,7 @@ class LLMClient:
                 temperature=self.config.temperature,
                 max_tokens=self.config.max_tokens,
                 stream=False,
+                extra_body=self._extra_body(),
             )
             content = resp.choices[0].message.content or ""
             # 按词切分，保持流式接口一致

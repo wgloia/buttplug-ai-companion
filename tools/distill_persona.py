@@ -71,6 +71,27 @@ async def distill(llm: LLMClient, name: str, material: str) -> dict:
     return parse_card(reply)
 
 
+def _escape_control_chars(text: str) -> str:
+    """把 JSON 字符串值内的裸换行/制表符转义（部分模型会输出未转义的控制字符）。"""
+    out = []
+    in_str, esc = False, False
+    for ch in text:
+        if esc:
+            out.append(ch)
+            esc = False
+        elif ch == "\\":
+            out.append(ch)
+            esc = True
+        elif ch == '"':
+            in_str = not in_str
+            out.append(ch)
+        elif in_str and ch in "\n\r\t":
+            out.append({"\\n": "\\n", "\\r": "\\r", "\\t": "\\t"}[repr(ch)[1:-1]])
+        else:
+            out.append(ch)
+    return "".join(out)
+
+
 def parse_card(text: str) -> dict:
     """容错解析 LLM 输出中的 JSON。"""
     t = text.strip()
@@ -80,7 +101,8 @@ def parse_card(text: str) -> dict:
     start, end = t.find("{"), t.rfind("}")
     if start == -1 or end == -1:
         raise ValueError(f"未找到 JSON：{text[:200]}")
-    return json.loads(t[start:end + 1])
+    t = _escape_control_chars(t[start:end + 1])
+    return json.loads(t)
 
 
 def validate(card: dict) -> None:
@@ -113,7 +135,8 @@ def load_llm_config() -> LLMConfig:
         api_key=llm_cfg.get("api_key", "ollama"),
         model=llm_cfg.get("model", "qwen2.5:7b-instruct-q4_K_M"),
         temperature=llm_cfg.get("temperature", 0.9),
-        max_tokens=llm_cfg.get("max_tokens", 4096),
+        # 蒸馏输出较长（角色卡 800+ 字），固定大 token 上限避免被截断
+        max_tokens=4096,
     )
 
 
@@ -143,7 +166,7 @@ def main() -> None:
         Path(__file__).resolve().parent.parent / "characters" / f"{slugify(args.name)}.json"
     out_path.write_text(output + "\n", encoding="utf-8")
     name = card.get("data", card).get("name", args.name)
-    print(f"✓ 角色卡已生成: {out_path}")
+    print(f"[OK] 角色卡已生成: {out_path}")
     print(f"  角色名: {name} | 标签: {card.get('data', card).get('tags', [])}")
     print("  刷新前端界面即可在角色列表看到新角色。")
 
