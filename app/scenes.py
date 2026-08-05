@@ -10,6 +10,8 @@ import asyncio
 import logging
 from pathlib import Path
 
+from .stt import get_stt_model
+
 log = logging.getLogger(__name__)
 
 AUDIO_EXTS = {".mp3", ".wav", ".m4a", ".flac", ".ogg", ".webm", ".aac", ".wma", ".mp4", ".mkv", ".avi"}
@@ -18,11 +20,13 @@ AUDIO_EXTS = {".mp3", ".wav", ".m4a", ".flac", ".ogg", ".webm", ".aac", ".wma", 
 class SceneManager:
     """音频扫描 + 异步转写 + 缓存。转写结果存 <音频名>.txt。"""
 
-    def __init__(self, base_dir: Path, scenes_dir: str = "scenes"):
+    def __init__(self, base_dir: Path, scenes_dir: str = "scenes",
+                 stt_provider=None, language: str = "zh"):
         self.base_dir = base_dir
         self.scenes_dir = base_dir / scenes_dir
         self.scenes_dir.mkdir(exist_ok=True)
-        self._stt_model = None
+        self._stt_provider = stt_provider or get_stt_model
+        self.language = language
         self._tasks: dict[str, asyncio.Task] = {}
         self.status: dict[str, str] = {}   # 音频名 -> transcribing / done / error
         self.texts: dict[str, str] = {}    # 音频名 -> 转写文本（内存缓存）
@@ -50,14 +54,6 @@ class SceneManager:
 
     # ---- 转写 ----
 
-    def _load_stt(self):
-        if self._stt_model is None:
-            from faster_whisper import WhisperModel
-            log.info("加载 STT 模型 (faster-whisper small, cpu/int8)，首次约 1 分钟…")
-            self._stt_model = WhisperModel("small", device="cpu", compute_type="int8")
-            log.info("STT 模型加载完成")
-        return self._stt_model
-
     async def transcribe(self, name: str) -> str:
         """启动（或复用）转写任务。已有缓存则直接返回文本。"""
         txt = self.scenes_dir / f"{name}.txt"
@@ -79,9 +75,9 @@ class SceneManager:
             return ""
         try:
             loop = asyncio.get_event_loop()
-            model = self._load_stt()   # 首次加载较慢，放线程池执行
+            # 模型加载（首次约 1 分钟）与转写都在线程池执行，避免冻结事件循环
             text = await loop.run_in_executor(
-                None, _transcribe_sync, model, str(audio))
+                None, _transcribe_sync, self._stt_provider, str(audio), self.language)
             if not text:
                 self.status[name] = "error"
                 return ""
@@ -97,7 +93,8 @@ class SceneManager:
             return ""
 
 
-def _transcribe_sync(model, path: str) -> str:
-    """同步转写（在 executor 中运行）。"""
-    segments, _ = model.transcribe(path, language="zh", vad_filter=True)
+def _transcribe_sync(stt_provider, path: str, language: str) -> str:
+    """同步转写（在 executor 中运行）。首次调用会顺带加载模型。"""
+    model = stt_provider()
+    segments, _ = model.transcribe(path, language=language, vad_filter=True)
     return "".join(seg.text for seg in segments).strip()

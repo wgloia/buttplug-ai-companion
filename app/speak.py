@@ -123,8 +123,3 @@ class TTSManager:
 
     def voice_list(self) -> list[dict]:
         return [{"name": n, "prompt": v.prompt_text[:40]} for n, v in self.voices.items()]
-
-
-# 兼容旧代码的模块级函数（/api/speak 直接调用）
-def strip_commands(text: str) -> str:
-    return _CMD_RE.sub("", text).strip()

@@ -11,7 +11,7 @@ from pathlib import Path
 
 import edge_tts
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.responses import FileResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
 from .commands import CommandSafety, SafetyConfig
@@ -99,7 +99,18 @@ async def startup():
     state["engine"] = PatternEngine(state["toy"], state["safety"])
 
     # 剧情（scenes/ 目录音频 → 转写文本 → 注入对话）
-    state["scenes"] = SceneManager(BASE_DIR, cfg.get("scenes", {}).get("dir", "scenes"))
+    # STT 模型与语音输入共享单例（app/stt.py），加载在后台线程执行
+    stt_cfg = cfg.get("stt", {})
+    state["stt_model_name"] = stt_cfg.get("model", "small")
+    state["stt_language"] = stt_cfg.get("language", "zh")
+    from .stt import get_stt_model
+    state["get_stt_model"] = get_stt_model
+    state["scenes"] = SceneManager(
+        BASE_DIR,
+        cfg.get("scenes", {}).get("dir", "scenes"),
+        stt_provider=get_stt_model,
+        language=state["stt_language"],
+    )
     state["active_scene"] = ""
 
     # 会话历史
@@ -448,26 +459,23 @@ async def stt(request: Request):
         raise HTTPException(400, "音频过短")
     import tempfile
 
-    # 懒加载模型：首次调用时加载（small 中文够用，int8 量化节省内存）
-    if not state.get("stt_model"):
-        log.info("加载 STT 模型 (faster-whisper small, cpu/int8)，首次约 1 分钟…")
-        from faster_whisper import WhisperModel
-        state["stt_model"] = WhisperModel("small", device="cpu", compute_type="int8")
-        state["stt_ready"] = True
-        log.info("STT 模型加载完成")
-    model = state["stt_model"]
+    loop = asyncio.get_event_loop()
+    # 模型加载（首次约 1 分钟）与转写都放线程池，避免冻结事件循环
+    model = await loop.run_in_executor(None, state["get_stt_model"], state["stt_model_name"])
+    state["stt_ready"] = True
 
     with tempfile.NamedTemporaryFile(suffix=".webm", delete=False) as f:
         f.write(audio)
         tmp = f.name
     try:
-        segments, _ = model.transcribe(tmp, language="zh", vad_filter=True)
-        text = "".join(seg.text for seg in segments).strip()
+        def _transcribe(path):
+            segments, _ = model.transcribe(path, language=state["stt_language"], vad_filter=True)
+            return "".join(seg.text for seg in segments).strip()
+        text = await loop.run_in_executor(None, _transcribe, tmp)
         if not text:
             raise HTTPException(400, "未识别到语音")
         return {"text": text}
     finally:
-        import os
         os.unlink(tmp)
 
 
@@ -483,14 +491,12 @@ async def speak(request: Request):
     try:
         data, media_type = await state["tts"].speak(text)
     except ValueError as exc:
-        return {"ok": False, "reason": str(exc)}
+        raise HTTPException(400, str(exc))
     except Exception as exc:
         log.warning("TTS 合成失败: %s", exc)
         raise HTTPException(500, f"TTS 失败: {exc}")
-    f = tempfile.NamedTemporaryFile(suffix=".bin", delete=False)
-    f.write(data)
-    f.close()
-    return FileResponse(f.name, media_type=media_type)
+    # 直接返回字节，避免临时文件泄漏（FileResponse 无法自动清理）
+    return Response(content=data, media_type=media_type)
 
 
 @app.get("/api/tts/voices")
