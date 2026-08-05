@@ -6,3 +6,5 @@ memories/
 models/
 app.log
 scenes/
+web/selfies/
+pull_qwen3.log

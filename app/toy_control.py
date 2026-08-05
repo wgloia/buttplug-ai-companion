@@ -8,9 +8,24 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
+from contextlib import contextmanager
 from typing import Callable
 
 import websockets
+
+
+@contextmanager
+def _bypass_proxy():
+    """临时清除代理环境变量，避免 websockets 走系统代理导致 502。"""
+    proxy_vars = ["HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy", "ALL_PROXY", "all_proxy"]
+    saved = {k: os.environ.pop(k, None) for k in proxy_vars}
+    try:
+        yield
+    finally:
+        for k, v in saved.items():
+            if v is not None:
+                os.environ[k] = v
 
 log = logging.getLogger(__name__)
 
@@ -30,7 +45,8 @@ class ToyController:
 
     async def connect(self) -> bool:
         try:
-            self.ws = await websockets.connect(self.ws_url, open_timeout=5)
+            with _bypass_proxy():
+                self.ws = await websockets.connect(self.ws_url, open_timeout=5)
             # 握手
             await self._send_raw({"RequestServerInfo": {
                 "Id": self._next_id(), "ClientName": "buttplug-ai-companion", "MessageVersion": 3}})

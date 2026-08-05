@@ -10,7 +10,7 @@ port = 8000
 [llm]
 base_url = "http://127.0.0.1:11434/v1"
 api_key = "ollama"       # 本地服务可填任意值
-model = "qwen2.5:7b-instruct-q4_K_M"
+model = "qwen3:8b-abliterated"
 temperature = 0.9
 max_tokens = 1024
 # 角色扮演需要长上下文，建议 >= 4096
@@ -49,6 +49,17 @@ enabled = true
 # 剧情音频目录：放入 .wav/.mp3/.m4a 等音频，界面右上角"剧情"下拉选择，
 # faster-whisper 本地转写为文本后注入对话，模型按剧本互动并触发玩具命令
 dir = "scenes"
+
+# ========== 女友子模块（自拍生图，[[selfie 描述]] 触发） ==========
+[girlfriend]
+# ComfyUI 服务地址（生图前需启动 ComfyUI）
+comfyui_url = "http://127.0.0.1:8188"
+# NSFW 生图模型文件名：下载后放入 ComfyUI/models/checkpoints/（如 "ponyV6XL.safetensors"）
+checkpoint = ""
+# 形象参考图（IPAdapter 保持形象一致；留空则纯文生图）
+reference_image = "girlfriend/assets/nana.png"
+# 参考图影响权重（0-1，越高越像参考形象）
+ipadapter_weight = 0.7
 
 # ========== 语音 (TTS) ==========
 [tts]

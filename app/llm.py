@@ -28,8 +28,10 @@ class LLMClient:
                                   http_client=httpx.AsyncClient(trust_env=False))
 
     def _extra_body(self) -> dict:
-        """Ollama 需要显式 num_ctx 才能用满配置的上下文长度。"""
-        return {"num_ctx": self.config.context_length} if "11434" in self.config.base_url else {}
+        """Ollama 需要显式 num_ctx 才能用满配置的上下文长度；qwen3 关闭思考模式（角色扮演实时性）。"""
+        if "11434" in self.config.base_url:
+            return {"num_ctx": self.config.context_length, "think": False}
+        return {}
 
     async def stream_chat(self, messages: list[dict]):
         """流式生成。yield 文本增量。若底层不支持流式则回退为一次性返回。"""
