@@ -60,6 +60,9 @@ checkpoint = ""
 reference_image = "girlfriend/assets/nana.png"
 # 参考图影响权重（0-1，越高越像参考形象）
 ipadapter_weight = 0.7
+# 模型架构：sd15（BigLust 等写实 NSFW 模型，512→1024x1536 Hires Fix）/
+#           sdxl（RealVisXL/Juggernaut 等，768→1536x2048）
+sd_version = "sd15"
 
 # ========== 语音 (TTS) ==========
 [tts]
