@@ -52,6 +52,8 @@ dir = "scenes"
 
 # ========== 女友子模块（自拍生图，[[selfie 描述]] 触发） ==========
 [girlfriend]
+# ComfyUI input 目录（参考图复制位置）
+comfyui_input_dir = "D:/tools/comfyuiv9.5/ComfyUI/input"
 # ComfyUI 服务地址（生图前需启动 ComfyUI）
 comfyui_url = "http://127.0.0.1:8188"
 # NSFW 生图模型文件名：下载后放入 ComfyUI/models/checkpoints/（如 "ponyV6XL.safetensors"）
@@ -63,6 +65,8 @@ ipadapter_weight = 0.7
 # 模型架构：sd15（BigLust 等写实 NSFW 模型，512→1024x1536 Hires Fix）/
 #           sdxl（RealVisXL/Juggernaut 等，768→1536x2048）
 sd_version = "sd15"
+# 生成超时（秒，SDXL Hires Fix 约需 5-10 分钟）
+timeout = 900
 
 # ========== 语音 (TTS) ==========
 [tts]

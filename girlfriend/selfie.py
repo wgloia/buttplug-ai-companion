@@ -24,6 +24,7 @@ log = logging.getLogger(__name__)
 @dataclass
 class SelfieConfig:
     comfyui_url: str = "http://127.0.0.1:8188"   # ComfyUI 服务地址
+    comfyui_input_dir: str = ""                   # ComfyUI input 目录（参考图需复制进去）
     checkpoint: str = ""                          # NSFW 模型文件名（models/checkpoints/ 下）
     reference_image: str = "girlfriend/assets/nana.png"  # 形象参考图（IPAdapter 用）
     ipadapter_weight: float = 0.7                 # 参考图影响权重（0=不参考，1=强参考）
@@ -55,7 +56,7 @@ def build_workflow(checkpoint: str, prompt: str, ref_image: str,
         # 第二段：Hires Fix（潜空间放大 + 二次采样）
         "15": {"class_type": "LatentUpscale",
                "inputs": {"samples": ["14", 0], "width": hires_w, "height": hires_h,
-                          "crop": "disabled", "upscale_method": "lanczos"}},
+                          "crop": "disabled", "upscale_method": "bislerp"}},
         "16": {"class_type": "KSampler",
                "inputs": {"seed": seed if seed >= 0 else int(time.time() * 1000) % 2**31,
                           "steps": 20, "cfg": 6.0, "sampler_name": "euler",
@@ -83,7 +84,8 @@ def build_workflow(checkpoint: str, prompt: str, ref_image: str,
                "inputs": {"model": ["11", 0], "ipadapter": ["11", 1],
                           "image": ["12", 0], "weight": weight,
                           "start_at": 0.0, "end_at": 1.0,
-                          "weight_type": "linear"}},
+                          "weight_type": "linear",
+                          "combine_embeds": "concat", "embeds_scaling": "V only"}},
     }
 
 
@@ -97,9 +99,18 @@ class SelfieService:
         (base_dir / config.output_dir).mkdir(parents=True, exist_ok=True)
 
     def ref_image_path(self) -> str | None:
-        """参考图（ComfyUI 内用相对路径：input 目录下）。返回绝对路径并确认存在。"""
+        """参考图：复制到 ComfyUI input 目录，返回相对文件名（LoadImage 用）。"""
         p = self.base_dir / self.config.reference_image
-        return str(p) if p.exists() else None
+        if not p.exists():
+            return None
+        if not self.config.comfyui_input_dir:
+            raise RuntimeError("未配置 ComfyUI input 目录（[girlfriend] comfyui_input_dir）")
+        import shutil
+        in_dir = Path(self.config.comfyui_input_dir)
+        in_dir.mkdir(parents=True, exist_ok=True)
+        dest = in_dir / p.name
+        shutil.copy2(p, dest)
+        return p.name
 
     def _api(self, path: str, method: str = "GET", body: dict | None = None) -> dict:
         url = self.config.comfyui_url + path
