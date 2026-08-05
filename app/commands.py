@@ -70,6 +70,13 @@ class CommandSafety:
                             kind="pattern", name=args[0], index=base, duration=dur, raw=raw)))
                     else:
                         log.warning("pattern 命令缺少名称: %s", raw)
+                elif kind == "selfie":
+                    # [[selfie 场景描述]]：女友自拍生图（完整剩余文本作为提示词）
+                    prompt = match.group(2).strip()
+                    if prompt:
+                        cmds.append(DeviceCommand(kind="selfie", name=prompt, raw=raw))
+                    else:
+                        log.warning("selfie 命令缺少场景描述: %s", raw)
             except (ValueError, IndexError):
                 log.warning("忽略无法解析的命令: %s", raw)
         return cmds

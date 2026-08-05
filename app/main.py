@@ -22,6 +22,7 @@ from .persona import load_persona
 from .scenes import SceneManager
 from .speak import TTSConfig, TTSManager
 from .toy_control import ToyController
+from girlfriend.selfie import SelfieConfig, SelfieService
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 log = logging.getLogger("companion")
@@ -101,6 +102,8 @@ async def startup():
     # 剧情（scenes/ 目录音频 → 转写文本 → 注入对话）
     state["scenes"] = SceneManager(BASE_DIR, cfg.get("scenes", {}).get("dir", "scenes"))
     state["active_scene"] = ""
+    # 女友自拍生图（[[selfie 描述]] 触发，ComfyUI 后端）
+    state["selfie"] = SelfieService(SelfieConfig(**cfg.get("girlfriend", {})), BASE_DIR)
 
     # 会话历史
     state["sessions"] = {}
@@ -405,8 +408,12 @@ async def chat(request: Request):
                     if key in seen:
                         continue
                     seen.add(key)
-                    await _execute(cmd, safety, toy, state["engine"])
-                    yield f"event: cmd\ndata: {json.dumps({'kind': cmd.kind, 'index': cmd.index, 'intensity': cmd.intensity, 'name': cmd.name, 'duration': cmd.duration}, ensure_ascii=False)}\n\n"
+                    extra = await _execute(cmd, safety, toy, state["engine"])
+                    payload = {'kind': cmd.kind, 'index': cmd.index, 'intensity': cmd.intensity,
+                               'name': cmd.name, 'duration': cmd.duration}
+                    if extra:
+                        payload.update(extra)
+                    yield f"event: cmd\ndata: {json.dumps(payload, ensure_ascii=False)}\n\n"
         except Exception as exc:
             log.exception("聊天流异常")
             yield f"event: error\ndata: {json.dumps(str(exc), ensure_ascii=False)}\n\n"
@@ -420,8 +427,8 @@ async def chat(request: Request):
     return StreamingResponse(gen(), media_type="text/event-stream", headers={"Cache-Control": "no-cache"})
 
 
-async def _execute(cmd, safety, toy, engine) -> None:
-    """执行解析出的指令（含安全钳制）。"""
+async def _execute(cmd, safety, toy, engine) -> dict | None:
+    """执行解析出的指令（含安全钳制）。selfie 返回图片信息。"""
     if cmd.kind == "stop":
         await engine.stop()
         await toy.stop_all()
@@ -436,8 +443,20 @@ async def _execute(cmd, safety, toy, engine) -> None:
         ok = await engine.start(cmd.name, cmd.index, cmd.duration)
         if ok:
             safety.remember_active(cmd)
+    elif cmd.kind == "selfie":
+        try:
+            img = await asyncio.get_event_loop().run_in_executor(
+                None, state["selfie"].generate, cmd.name)
+            rel = img.relative_to(BASE_DIR / "web")
+            url = f"/static/{rel.as_posix()}"
+            log.info("自拍已生成: %s", url)
+            return {"url": url}
+        except Exception as exc:
+            log.warning("自拍生成失败: %s", exc)
+            return {"error": str(exc)}
     else:
         log.info("未识别指令: %s", cmd.raw)
+    return None
 
 
 @app.post("/api/stt")

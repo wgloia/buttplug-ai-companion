@@ -357,10 +357,21 @@ function addMsg(text, cls) {
 function addCmd(c) {
   const txt = c.kind === 'vibrate' ? `⚡ 振动 马达${c.index} @ ${c.intensity}%`
            : c.kind === 'stop' ? '⏹ 已停止'
+           : c.kind === 'selfie' ? '📸 自拍生成中…'
            : `🎵 模式「${c.name}」${c.index ? ' @ ' + c.index + '%' : ''}${c.duration ? ' · ' + c.duration + 's' : ''}`;
   const div = document.createElement('div');
   div.className = 'msg cmd';
   div.innerHTML = txt;
+  if (c.kind === 'selfie' && c.url) {
+    div.innerHTML = '📸 娜娜的自拍';
+    const img = document.createElement('img');
+    img.src = c.url;
+    img.style.cssText = 'max-width:100%;border-radius:12px;margin-top:8px;cursor:pointer';
+    img.onclick = () => window.open(c.url, '_blank');
+    div.appendChild(img);
+  } else if (c.kind === 'selfie' && c.error) {
+    div.innerHTML = '⚠ 自拍生成失败：' + c.error;
+  }
   $('#messages').appendChild(div);
   $('#messages').scrollTop = $('#messages').scrollHeight;
 }
