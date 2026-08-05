@@ -26,7 +26,7 @@ class SelfieConfig:
     comfyui_url: str = "http://127.0.0.1:8188"   # ComfyUI 服务地址
     comfyui_input_dir: str = ""                   # ComfyUI input 目录（参考图需复制进去）
     checkpoint: str = ""                          # NSFW 模型文件名（models/checkpoints/ 下）
-    reference_image: str = "girlfriend/assets/nana.png"  # 形象参考图（IPAdapter 用）
+    reference_image: str = "girlfriend/assets/nana.jpg"  # 形象参考图（IPAdapter 用）
     ipadapter_weight: float = 0.7                 # 参考图影响权重（0=不参考，1=强参考）
     sd_version: str = "sd15"                      # sd15 / sdxl（决定基础分辨率与 IPAdapter 预设）
     hires_denoise: float = 0.45                   # Hires Fix 第二段重绘强度
@@ -44,12 +44,12 @@ def build_workflow(checkpoint: str, prompt: str, ref_image: str,
         preset = "PLUS (high strength)"
     else:  # sd15：512 起步 + Hires Fix 到 1024x1536（再叠 upscale 可更高）
         base_w, base_h, hires_w, hires_h = 512, 768, 1024, 1536
-        preset = "LIGHT - SD1.5 only (SD1.5)"
+        preset = "PLUS (high strength)"  # 使用 ip-adapter-plus_sd15
     return {
         # 第一段：基础生成
         "14": {"class_type": "KSampler",
                "inputs": {"seed": seed if seed >= 0 else int(time.time() * 1000) % 2**31,
-                          "steps": 24, "cfg": 6.0, "sampler_name": "euler",
+                          "steps": 30, "cfg": 6.0, "sampler_name": "euler",
                           "scheduler": "normal", "denoise": 1.0,
                           "model": ["13", 0], "positive": ["6", 0],
                           "negative": ["7", 0], "latent_image": ["8", 0]}},
@@ -59,7 +59,7 @@ def build_workflow(checkpoint: str, prompt: str, ref_image: str,
                           "crop": "disabled", "upscale_method": "bislerp"}},
         "16": {"class_type": "KSampler",
                "inputs": {"seed": seed if seed >= 0 else int(time.time() * 1000) % 2**31,
-                          "steps": 20, "cfg": 6.0, "sampler_name": "euler",
+                          "steps": 15, "cfg": 6.0, "sampler_name": "euler",
                           "scheduler": "normal", "denoise": 0.45,
                           "model": ["13", 0], "positive": ["6", 0],
                           "negative": ["7", 0], "latent_image": ["15", 0]}},

@@ -59,7 +59,7 @@ comfyui_url = "http://127.0.0.1:8188"
 # NSFW 生图模型文件名：下载后放入 ComfyUI/models/checkpoints/（如 "ponyV6XL.safetensors"）
 checkpoint = ""
 # 形象参考图（IPAdapter 保持形象一致；留空则纯文生图）
-reference_image = "girlfriend/assets/nana.png"
+reference_image = "girlfriend/assets/nana.jpg"
 # 参考图影响权重（0-1，越高越像参考形象）
 ipadapter_weight = 0.7
 # 模型架构：sd15（BigLust 等写实 NSFW 模型，512→1024x1536 Hires Fix）/
