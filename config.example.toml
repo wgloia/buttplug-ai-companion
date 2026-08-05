@@ -10,7 +10,7 @@ port = 8000
 [llm]
 base_url = "http://127.0.0.1:11434/v1"
 api_key = "ollama"       # 本地服务可填任意值
-model = "qwen2.5:7b-instruct-q4_K_M"
+model = "qwen3:8b-abliterated"
 temperature = 0.9
 max_tokens = 1024
 # 角色扮演需要长上下文，建议 >= 4096

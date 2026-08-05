@@ -5,8 +5,10 @@ import asyncio
 import json
 import logging
 import re
+import sys
 import tempfile
 import uuid
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 import edge_tts
@@ -23,6 +25,14 @@ from .scenes import SceneManager
 from .speak import TTSConfig, TTSManager
 from .toy_control import ToyController
 from girlfriend.selfie import SelfieConfig, SelfieService
+
+# 强制 UTF-8 编码，修复 Windows 控制台中文日志乱码
+if sys.platform == "win32":
+    try:
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 log = logging.getLogger("companion")
@@ -47,8 +57,8 @@ def load_config() -> dict:
         return tomllib.load(f)
 
 
-@app.on_event("startup")
-async def startup():
+@asynccontextmanager
+async def lifespan(app: FastAPI):
     cfg = load_config()
     state["cfg"] = cfg
 
@@ -117,6 +127,9 @@ async def startup():
         voices_dir=tts_cfg.get("voices_dir", "voices"),
         edge_voice=tts_cfg.get("edge_voice", "zh-CN-XiaoxiaoNeural"),
     ), BASE_DIR)
+    yield
+
+app.router.lifespan_context = lifespan
 
 
 def get_session(session_id: str) -> dict:
