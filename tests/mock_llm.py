@@ -9,6 +9,8 @@ FIXED_REPLY = "宝贝～你今天真可爱，让我陪陪你吧。[[vibrate 40]]
 
 MEMORY_REPLY = '[{"text": "用户喜欢草莓味的甜点", "importance": 3}, {"text": "用户养了一只叫豆豆的猫", "importance": 4}]'
 
+SELFIE_REPLY = "好呀～那你等我一下哦。[[selfie 穿着黑色睡衣躺在卧室床上]]"
+
 DISTILL_REPLY = json.dumps({
     "spec": "chara_card_v2",
     "data": {
@@ -33,6 +35,8 @@ async def completions(request: Request):
         reply = MEMORY_REPLY
     elif "Character Card V2 格式" in last_msg or "角色卡创作" in last_msg:
         reply = DISTILL_REPLY
+    elif "自拍" in last_msg or "拍张照" in last_msg or "照片" in last_msg:
+        reply = SELFIE_REPLY
     else:
         reply = FIXED_REPLY
     async def gen():

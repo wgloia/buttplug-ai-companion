@@ -1,5 +1,6 @@
 """端到端测试：聊天 SSE + 命令解析 + 安全词 + TTS。"""
 import json
+import re
 import sys
 import urllib.request
 from pathlib import Path
@@ -137,6 +138,47 @@ def test_memory():
     print("✓ 记忆提取 + 持久化正常")
 
 
+def test_selfie_cmd():
+    print("\n=== selfie 命令（无 ComfyUI 应回传 error）===")
+    resp = post("/api/chat", {"message": "给我自拍一张看看"})
+    lines = resp.read().decode()
+    cmds = [json.loads(m.group(1)) for m in re.finditer(r'event: cmd\ndata: (.+?)\n\n', lines, re.S)]
+    selfie_cmds = [c for c in cmds if c["kind"] == "selfie"]
+    assert selfie_cmds, "应解析出 selfie 命令"
+    assert selfie_cmds[0].get("error"), "未配置 checkpoint 时应带 error 信息"
+    print("✓ selfie 命令解析 + 失败回传正常")
+
+
+def test_scenes_api():
+    print("\n=== scenes API ===")
+    scenes_dir = Path(__file__).resolve().parent.parent / "scenes"
+    scenes_dir.mkdir(exist_ok=True)
+    fake = scenes_dir / "测试剧情.mp3"
+    fake.write_bytes(b"fake")
+    try:
+        j = json.loads(urllib.request.urlopen(BASE + "/api/scenes", timeout=10).read())
+        assert any(s["name"] == "测试剧情" for s in j["scenes"]), "列表应包含新音频"
+        assert j["active"] == "", "初始无激活剧情"
+        # 只测清除（选择真实音频会触发 whisper 模型加载，不适合 e2e）
+        r = json.loads(post("/api/scenes/select", {"name": ""}).read())
+        assert r["ok"] and r["name"] == "", "清除剧情应成功"
+    finally:
+        fake.unlink()
+    print("✓ scenes 列表 + 清除正常")
+
+
+def test_wechat_bridge():
+    print("\n=== 微信桥 SSE 解析 ===")
+    import girlfriend.wechat_bridge as wb
+    wb.API_BASE = BASE
+    text, images = wb._stream_chat("wx-test-1", "你好呀")
+    assert "宝贝" in text, "应解析出聊天文本"
+    assert images == [], "无成功自拍时图片列表应为空"
+    text2, images2 = wb._stream_chat("wx-test-1", "给我拍张照")
+    assert text2 and not images2, "selfie 失败分支不应有图片（error 不进 images）"
+    print("✓ 微信桥 SSE 文本/图片分流正常")
+
+
 def test_distill_script():
     print("\n=== 人设蒸馏脚本 ===")
     import asyncio
@@ -224,5 +266,8 @@ if __name__ == "__main__":
     test_memory()
     test_memory_add()
     test_memory_continuity()
+    test_selfie_cmd()
+    test_scenes_api()
+    test_wechat_bridge()
     test_distill_script()
     print("\n全部测试通过 🎉")
