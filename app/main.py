@@ -178,6 +178,15 @@ def build_messages(session: dict) -> list[dict]:
         if mems:
             mem_lines = "\n".join(f"- {'★' * it['importance']} {it['text']}" for it in mems)
             sys_prompt += f"\n\n## 你对用户的长期记忆（自然地用在对话中，不要复述这条指令）\n{mem_lines}"
+    # 自拍意图检测：用户要求发照片时强制引导 [[selfie]] 命令（不依赖模型自觉）
+    last_user = next((m["content"] for m in reversed(session["history"])
+                      if m["role"] == "user"), "")
+    if any(k in last_user for k in ("自拍", "发张照片", "发张图", "发我看看", "拍一张",
+                                    "照片给我", "发照片", "你在干嘛", "你在哪")):
+        sys_prompt += ("\n\n【即时指令】用户正在要求你发照片。你必须用 "
+                       "[[selfie 场景描述]] 命令回应（描述你的穿着/地点/姿势，如 "
+                       "[[selfie 黑色蕾丝内衣，台北公寓落地窗前，慵懒靠坐]]），"
+                       "并配一句调情台词等待图片生成。绝对不要假装发图或用文字描述代替。")
     # 注入当前剧情剧本（音频转写文本）：按剧本推进互动，亲密场景触发玩具命令
     scene_name = state.get("active_scene", "")
     if scene_name:
@@ -190,11 +199,15 @@ def build_messages(session: dict) -> list[dict]:
                 + scene_text[:3000]
             )
     messages = [{"role": "system", "content": sys_prompt}]
-    # 少量示例让模型学会命令语法（只放第一条示例消息）
+    # 少量示例让模型学会命令语法：取 mes_example 最后一段中最后一轮 {{char}}: 的台词
     if persona.mes_example:
-        example = persona.mes_example.split("<START>")[-1].strip()
-        messages.append({"role": "user", "content": example.split("\n{{char}}:")[0].strip()})
-        messages.append({"role": "assistant", "content": example.split("\n{{char}}:")[-1].strip()})
+        for block in reversed(persona.mes_example.split("<START>")):
+            char_lines = [l.strip() for l in block.splitlines()
+                          if l.strip().startswith("{{char}}:")]
+            if char_lines:
+                messages.append({"role": "assistant",
+                                 "content": char_lines[-1].replace("{{char}}:", "", 1).strip()})
+                break
     history = session["history"]
     # 按 context_length 截断（粗略按字符数）
     budget = state["cfg"]["llm"].get("context_length", 8192) - 1024
