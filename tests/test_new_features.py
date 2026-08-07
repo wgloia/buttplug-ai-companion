@@ -18,21 +18,34 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 # ============ selfie：build_workflow 纯函数 ============
 
 def test_build_workflow():
-    print("\n=== selfie build_workflow 结构 ===")
+    print("\n=== selfie build_workflow 结构（Hires Fix 两段式）===")
     from girlfriend.selfie import build_workflow
     wf = build_workflow("ponyV6XL.safetensors", "穿着睡衣", "ref.png",
-                        "lowres", 0.7, width=768, height=1024)
+                        "lowres", 0.7, sd_version="sd15")
     assert wf["5"]["inputs"]["ckpt_name"] == "ponyV6XL.safetensors", "checkpoint 应注入节点 5"
     assert wf["6"]["inputs"]["text"] == "穿着睡衣", "正向提示词应注入节点 6"
     assert wf["7"]["inputs"]["text"] == "lowres", "负向提示词应注入节点 7"
-    assert wf["8"]["inputs"]["width"] == 768 and wf["8"]["inputs"]["height"] == 1024
-    # IPAdapter 三节点（加载器/参考图/应用）齐备，权重正确
+    # Hires Fix 两段式：基础采样(14) → 潜空间放大(15) → 二次采样(16) → 解码(9)
+    assert wf["14"]["inputs"]["steps"] == 30, "基础段 30 步"
+    assert wf["15"]["class_type"] == "LatentUpscale", "应有放大节点"
+    assert wf["16"]["inputs"]["denoise"] == 0.45, "Hires 段应为低 denoise 重绘"
+    assert wf["9"]["inputs"]["samples"] == ["16", 0], "VAEDecode 应取 Hires 段输出"
+    # sd15：512x768 起步放大到 1024x1536
+    assert wf["8"]["inputs"]["width"] == 512 and wf["8"]["inputs"]["height"] == 768
+    assert wf["15"]["inputs"]["width"] == 1024 and wf["15"]["inputs"]["height"] == 1536
+    # sdxl：768x1024 起步放大到 1536x2048
+    wf_xl = build_workflow("ponyV6XL.safetensors", "穿着睡衣", "ref.png", "lowres", 0.7,
+                           sd_version="sdxl")
+    assert wf_xl["8"]["inputs"]["width"] == 768 and wf_xl["15"]["inputs"]["width"] == 1536
+    # IPAdapter 三节点（加载器/参考图/应用）齐备，权重与嵌入选项正确
     assert "11" in wf and "12" in wf and "13" in wf, "应包含 IPAdapter 分支"
     assert wf["13"]["inputs"]["weight"] == 0.7
     assert wf["13"]["inputs"]["image"] == ["12", 0], "IPAdapter 应引用参考图节点"
-    # 采样器模型来源应为 IPAdapter 输出
-    assert wf["3"]["inputs"]["model"] == ["13", 0], "KSampler 应从 IPAdapter 取模型"
-    print("✓ workflow 节点图结构正确（checkpoint/prompt/IPAdapter/采样器）")
+    assert wf["13"]["inputs"].get("combine_embeds") == "concat"
+    # 两段采样器模型来源均为 IPAdapter 输出
+    assert wf["14"]["inputs"]["model"] == ["13", 0]
+    assert wf["16"]["inputs"]["model"] == ["13", 0]
+    print("✓ 两段式节点图正确（Hires Fix + IPAdapter + 分辨率自适应）")
 
 
 # ============ selfie：错误路径 ============
@@ -108,6 +121,7 @@ def test_selfie_success_path():
             ref.write_bytes(b"REF")
             svc = SelfieService(SelfieConfig(
                 comfyui_url=f"http://127.0.0.1:{port}",
+                comfyui_input_dir=str(base / "comfyui_input"),
                 checkpoint="ponyV6XL.safetensors",
                 reference_image="girlfriend/assets/nana.png",
                 output_dir="web/selfies",
@@ -132,6 +146,7 @@ def test_ref_image_missing():
             base = Path(d)
             svc = SelfieService(SelfieConfig(
                 comfyui_url=f"http://127.0.0.1:{port}",
+                comfyui_input_dir=str(base / "comfyui_input"),
                 checkpoint="ponyV6XL.safetensors",
                 reference_image="girlfriend/assets/nana.png",  # 不存在
                 output_dir="web/selfies", timeout=5.0,
@@ -139,10 +154,11 @@ def test_ref_image_missing():
             assert svc.ref_image_path() is None, "参考图不存在时应返回 None"
             out = svc.generate("穿着睡衣")
             assert out.exists(), "纯文生图也应产出图片"
-            # 降级验证：提交的 workflow 不含 IPAdapter 节点，采样器直连 checkpoint
+            # 降级验证：提交的 workflow 不含 IPAdapter 节点，两段采样器直连 checkpoint
             wf = FakeComfyUI.last_prompt
             assert "11" not in wf and "12" not in wf and "13" not in wf, "无参考图时应移除 IPAdapter 分支"
-            assert wf["3"]["inputs"]["model"] == ["5", 0], "KSampler 应直连 CheckpointLoader"
+            assert wf["14"]["inputs"]["model"] == ["5", 0], "基础段应直连 CheckpointLoader"
+            assert wf["16"]["inputs"]["model"] == ["5", 0], "Hires 段应直连 CheckpointLoader"
     finally:
         server.shutdown()
     print("✓ 参考图缺失降级为纯文生图（IPAdapter 分支移除）")
